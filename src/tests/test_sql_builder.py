@@ -1,3 +1,5 @@
+from datetime import date
+
 from src.services.intent_schema import QueryIntent
 from src.services.sql_builder import build_query
 
@@ -23,8 +25,8 @@ class TestSqlBuilder:
         assert "creator_id = :creator_id" in sql
         assert "video_created_at::date BETWEEN :date_from AND :date_to" in sql
         assert params["creator_id"] == "abc123"
-        assert params["date_from"] == "2025-11-01"
-        assert params["date_to"] == "2025-11-05"
+        assert params["date_from"] == date(2025, 11, 1)
+        assert params["date_to"] == date(2025, 11, 5)
 
     def test_count_videos_by_threshold(self):
         intent = QueryIntent(
