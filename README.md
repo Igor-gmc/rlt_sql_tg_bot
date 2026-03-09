@@ -164,14 +164,6 @@ WHERE (created_at AT TIME ZONE 'UTC')::date = :date_from
 │       ├── test_e2e_queries.py      # E2E-тесты: intent → SQL → PostgreSQL
 │       ├── test_intent_schema.py    # Unit-тесты валидации Pydantic
 │       └── test_sql_builder.py      # Unit-тесты генерации SQL
-│
-└── repo/                             # Проектная документация
-    ├── agents.md                     # Роли агентов (PM, Architect, Dev, QA)
-    ├── architecture.md               # Архитектура и ADR
-    ├── buiseness_logic.md            # Бизнес-требования (ТЗ)
-    ├── glossary.md                   # Глоссарий: переменные, схема БД, стек
-    ├── implementation_plan.md        # Поэтапный план реализации
-    └── varint_query_to_sql.md        # Описание composite intent и примеры
 ```
 
 ## Тестирование
