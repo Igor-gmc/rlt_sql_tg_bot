@@ -31,9 +31,18 @@ def build_query(intent: QueryIntent) -> tuple[str, dict]:
             sum_col = METRIC_COLUMNS[intent.metric]
         select = f"SELECT COALESCE(SUM({sum_col}), 0)"
     elif intent.aggregation == "count_distinct":
-        delta_col = DELTA_COLUMNS[intent.metric]
-        select = "SELECT COUNT(DISTINCT video_id)"
-        conditions.append(f"{delta_col} > 0")
+        if intent.distinct_field == "date":
+            if intent.source == "videos":
+                select = "SELECT COUNT(DISTINCT video_created_at::date)"
+            else:
+                select = "SELECT COUNT(DISTINCT (created_at AT TIME ZONE 'UTC')::date)"
+        elif intent.distinct_field:
+            select = f"SELECT COUNT(DISTINCT {intent.distinct_field})"
+        else:
+            select = "SELECT COUNT(DISTINCT video_id)"
+        if intent.metric:
+            delta_col = DELTA_COLUMNS[intent.metric]
+            conditions.append(f"{delta_col} > 0")
 
     # FROM clause
     f = intent.filters

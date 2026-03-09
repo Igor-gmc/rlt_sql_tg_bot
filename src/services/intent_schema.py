@@ -43,16 +43,16 @@ class QueryIntent(BaseModel):
     source: Literal["videos", "video_snapshots"]
     aggregation: Literal["count", "count_distinct", "sum"]
     metric: Literal["views", "likes", "comments", "reports"] | None = None
+    distinct_field: Literal["creator_id", "video_id", "date"] | None = None
     filters: Filters = Filters()
 
     @model_validator(mode="after")
     def validate_intent(self) -> "QueryIntent":
         if self.aggregation == "sum" and self.metric is None:
             raise ValueError("metric обязательна для aggregation=sum")
-        if self.aggregation == "count_distinct" and self.metric is None:
-            raise ValueError("metric обязательна для aggregation=count_distinct")
-        if self.aggregation == "count_distinct" and self.source != "video_snapshots":
-            raise ValueError(
-                "count_distinct поддерживается только для video_snapshots"
-            )
+        if self.aggregation == "count_distinct":
+            if self.metric is None and self.distinct_field is None:
+                raise ValueError(
+                    "metric или distinct_field обязательны для aggregation=count_distinct"
+                )
         return self
