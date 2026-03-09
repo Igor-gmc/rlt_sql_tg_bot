@@ -119,35 +119,112 @@ WHERE (created_at AT TIME ZONE 'UTC')::date = :date_from
 - **Правила выбора агрегации**: «сколько видео» → `count`, «на сколько выросли» → `sum`, «сколько разных видео» → `count_distinct`
 - **Маппинг метрик**: просмотры → `views`, лайки → `likes`, комментарии → `comments`, жалобы → `reports`
 - **Формат ответа**: строго JSON по фиксированной схеме, без SQL, без пояснений
-- **5 примеров** intent для каждого типа запроса из ТЗ
+- **Примеры** intent для каждого типа запроса
 
 Полный текст промпта находится в `src/services/llm_service.py` (переменная `SYSTEM_PROMPT`).
 
 ## Структура проекта
 
 ```
-├── .env                         # Переменные окружения
-├── docker-compose.yml           # PostgreSQL + бот
+├── .env                              # Переменные окружения
+├── .gitignore
+├── docker-compose.yml                # PostgreSQL + бот
 ├── Dockerfile
 ├── requirements.txt
-├── data/videos.json             # Исходные данные
+├── README.md
+│
+├── data/
+│   └── videos.json                   # Исходные данные для загрузки в БД
+│
 ├── src/
-│   ├── main.py                  # Точка входа
-│   ├── config.py                # Настройки из .env
-│   ├── bot/handlers.py          # Telegram-хэндлеры
+│   ├── __init__.py
+│   ├── main.py                       # Точка входа: init_db, load_data, polling
+│   ├── config.py                     # Настройки из .env (pydantic-settings)
+│   │
+│   ├── bot/
+│   │   ├── __init__.py
+│   │   └── handlers.py              # Telegram-хэндлеры (aiogram Router)
+│   │
 │   ├── db/
-│   │   ├── models.py            # ORM-модели (Video, VideoSnapshot)
-│   │   ├── engine.py            # AsyncEngine, init_db
-│   │   └── loader.py            # Загрузка JSON в БД
-│   └── services/
-│       ├── llm_service.py       # OpenAI async клиент + промпт
-│       ├── intent_schema.py     # Pydantic-модель QueryIntent
-│       ├── sql_builder.py       # Построение SQL из intent
-│       └── query_service.py     # Оркестрация pipeline
-└── repo/                        # Документация и ADR
+│   │   ├── __init__.py
+│   │   ├── engine.py                # AsyncEngine, async_sessionmaker, init_db()
+│   │   ├── loader.py                # Загрузка videos.json в БД (идемпотентно)
+│   │   └── models.py                # ORM-модели: Video, VideoSnapshot
+│   │
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── llm_service.py           # OpenAI async клиент + system prompt
+│   │   ├── intent_schema.py         # Pydantic-модели: QueryIntent, Filters
+│   │   ├── sql_builder.py           # Построение SQL из intent (белые списки)
+│   │   └── query_service.py         # Оркестрация: NL → intent → SQL → число
+│   │
+│   └── tests/
+│       ├── __init__.py
+│       ├── test_cases.py            # 61 тестовый кейс (описание, intent, ответ)
+│       ├── test_e2e_queries.py      # E2E-тесты: intent → SQL → PostgreSQL
+│       ├── test_intent_schema.py    # Unit-тесты валидации Pydantic
+│       └── test_sql_builder.py      # Unit-тесты генерации SQL
+│
+└── repo/                             # Проектная документация
+    ├── agents.md                     # Роли агентов (PM, Architect, Dev, QA)
+    ├── architecture.md               # Архитектура и ADR
+    ├── buiseness_logic.md            # Бизнес-требования (ТЗ)
+    ├── glossary.md                   # Глоссарий: переменные, схема БД, стек
+    ├── implementation_plan.md        # Поэтапный план реализации
+    └── varint_query_to_sql.md        # Описание composite intent и примеры
 ```
+
+## Тестирование
+
+```bash
+# Unit-тесты SQL Builder и валидации
+python -m pytest src/tests/test_sql_builder.py src/tests/test_intent_schema.py -v
+
+# E2E-тесты (требуется запущенный PostgreSQL в Docker)
+python -m pytest src/tests/test_e2e_queries.py -v
+```
+
+Тестовые кейсы определены в `src/tests/test_cases.py` — 61 сценарий, покрывающий все типы запросов: count, sum, count_distinct, фильтры по дате/datetime, threshold, creator_id, delta-метрики.
 
 ## Технологии
 
-- Python 3.11, aiogram 3, SQLAlchemy 2 + asyncpg, Pydantic 2, OpenAI API
-- Весь стек асинхронный end-to-end
+- **Python 3.11** — основной язык
+- **aiogram 3** — асинхронный Telegram Bot API
+- **SQLAlchemy 2 + asyncpg** — асинхронный ORM и драйвер PostgreSQL
+- **Pydantic 2** — валидация intent-структур и настроек
+- **OpenAI API (gpt-4o-mini)** — semantic parsing (NL → JSON)
+- **Docker + docker-compose** — контейнеризация
+- **PostgreSQL 15** — хранение данных
+
+Весь стек асинхронный end-to-end.
+
+## Масштабирование
+
+### Вынос базы данных в отдельный контейнер / сервер
+
+В текущей конфигурации PostgreSQL и бот запускаются в одном docker-compose. Для production-окружения базу данных можно вынести на отдельный сервер или в managed-сервис (AWS RDS, Yandex Managed PostgreSQL и т.д.):
+
+1. Убрать сервис `db` из `docker-compose.yml`
+2. В `.env` указать хост и порт внешней БД:
+   ```env
+   DB_HOST=your-db-host.example.com
+   DB_PORT=5432
+   ```
+3. Бот подключится к внешней базе без изменения кода — все параметры берутся из переменных окружения
+
+### Горизонтальное масштабирование бота
+
+- Бот stateless — можно запустить несколько реплик за балансировщиком с помощью Telegram Bot API webhook-режима вместо polling
+- Для переключения на webhook достаточно заменить `start_polling()` на `start_webhook()` в `src/main.py` и добавить HTTP-сервер (aiohttp/FastAPI)
+
+### Масштабирование базы данных
+
+- **Read replicas** — для тяжёлых аналитических запросов можно направлять SELECT-запросы на реплику
+- **Индексы** — при росте данных добавить индексы на часто используемые поля (`creator_id`, `video_created_at`, `created_at`, `video_id`)
+- **Партиционирование** — таблицу `video_snapshots` можно партиционировать по дате (`created_at`) для ускорения запросов по диапазонам дат
+- **Пул соединений** — при большом числе запросов настроить PgBouncer перед PostgreSQL
+
+### Кэширование
+
+- Одинаковые вопросы часто приводят к одним и тем же SQL-запросам — можно кэшировать результаты на уровне intent (Redis / in-memory LRU)
+- Кэш LLM-ответов позволит сэкономить на API-вызовах для повторяющихся формулировок
